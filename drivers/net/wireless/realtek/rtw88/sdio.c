@@ -143,8 +143,12 @@ static u32 rtw_sdio_to_io_address(struct rtw_dev *rtwdev, u32 addr,
 
 static bool rtw_sdio_use_direct_io(struct rtw_dev *rtwdev, u32 addr)
 {
-	return !rtw_sdio_is_sdio30_supported(rtwdev) ||
-		rtw_sdio_is_bus_addr(addr);
+       if (!rtw_sdio_is_bus_addr(addr) &&
+           !test_bit(RTW_FLAG_POWERON, rtwdev->flags))
+               return false;
+
+       return !rtw_sdio_is_sdio30_supported(rtwdev) ||
+               rtw_sdio_is_bus_addr(addr);
 }
 
 static int rtw_sdio_indirect_reg_cfg(struct rtw_dev *rtwdev, u32 addr, u32 cfg)
