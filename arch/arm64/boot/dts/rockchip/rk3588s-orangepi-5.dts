@@ -263,11 +263,16 @@
 		#size-cells = <2>;
 		ranges;
 
-		/* Reserve 256MB memory for hdmirx-controller@fdee0000 */
+		/*
+		 * CMA pool for hdmirx-controller@fdee0000, VPU and display.
+		 * Bumped 256MB -> 1024MB for headroom (multi-stream 4K
+		 * decode/encode, HDMI-in capture). Use size= so the kernel
+		 * auto-places the larger region instead of a fixed reg.
+		 */
 		cma {
 			compatible = "shared-dma-pool";
 			reusable;
-			reg = <0x0 (256 * 0x100000) 0x0 (256 * 0x100000)>;
+			size = <0x0 (1024 * 0x100000)>;
 			linux,cma-default;
 		};
 	};
