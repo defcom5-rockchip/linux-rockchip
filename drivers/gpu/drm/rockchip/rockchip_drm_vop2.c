@@ -173,8 +173,8 @@
 #define VOP2_SYS_AXI_BUS_NUM 2
 
 #define VOP2_MAX_VP_OUTPUT_WIDTH	4096
-/* KHZ */
-#define VOP2_MAX_DCLK_RATE		600000
+/* KHZ - raised 600000->1200000 for RK3588 4K@120Hz (jamautt, PR #1326) */
+#define VOP2_MAX_DCLK_RATE		1200000
 
 enum vop2_data_format {
 	VOP2_FMT_ARGB8888 = 0,
