@@ -3130,6 +3130,18 @@ static bool rockchip_vop2_mod_supported(struct drm_plane *plane, u32 format, u64
 	if (modifier == DRM_FORMAT_MOD_LINEAR)
 		return true;
 
+	/*
+	 * Pi Studio NO-FLICKER variant: reject AFBC modifiers so the compositor
+	 * composites to a LINEAR buffer on the (still-registered) Cluster primary.
+	 * The RK3588 VOP2 cannot decompress AFBC scanout fast enough at 4K@120Hz,
+	 * causing windowed/composited flicker (fullscreen linear direct-scanout is
+	 * fine). Unlike disable-afbc-win, which removes the AFBC Cluster planes and
+	 * thus kills the primary plane (no display), this keeps the plane and only
+	 * drops AFBC -> linear scanout -> no flicker. Confirmed on HW 2026-06-25.
+	 */
+	if (rockchip_afbc(plane, modifier))
+		return false;
+
 	if (!rockchip_afbc(plane, modifier) &&
 	    !rockchip_rfbc(plane, modifier) &&
 	    !rockchip_tiled(plane, modifier)) {
