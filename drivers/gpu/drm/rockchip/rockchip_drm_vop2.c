@@ -175,6 +175,14 @@
 #define VOP2_MAX_VP_OUTPUT_WIDTH	4096
 /* KHZ - raised 600000->1200000 for RK3588 4K@120Hz (jamautt, PR #1326) */
 #define VOP2_MAX_DCLK_RATE		1200000
+/*
+ * KHZ - the highest dclk the HDMI PHY PLL can source for VOP. Above this the
+ * link runs FRL: the rkr7.x PHY driver only enters FRL through phy_configure()
+ * (its clk op clamps CCF requests to the current TMDS rate), so dclk must come
+ * from the CRU instead. This used to share VOP2_MAX_DCLK_RATE; raising that
+ * ceiling for 4K@120 must not drag the PLL-source decision along with it.
+ */
+#define VOP2_HDMI_PHY_PLL_MAX_DCLK_RATE	600000
 
 enum vop2_data_format {
 	VOP2_FMT_ARGB8888 = 0,
@@ -6308,7 +6316,7 @@ static u32 vop2_get_hdmi_tmds_rate(struct rockchip_crtc_state *vcstate, u32 rate
 static bool vop2_is_dclk_switch_to_cru_pll(struct vop2 *vop2, struct rockchip_crtc_state *vcstate,
 					   u32 dclk_rate)
 {
-	if (dclk_rate > VOP2_MAX_DCLK_RATE)
+	if (dclk_rate > VOP2_HDMI_PHY_PLL_MAX_DCLK_RATE)
 		return true;
 
 	/*
@@ -6322,7 +6330,7 @@ static bool vop2_is_dclk_switch_to_cru_pll(struct vop2 *vop2, struct rockchip_cr
 	    vcstate->output_mode == ROCKCHIP_OUT_MODE_YUV420)
 		return true;
 
-	if (vop2_get_hdmi_tmds_rate(vcstate, dclk_rate) <= VOP2_MAX_DCLK_RATE)
+	if (vop2_get_hdmi_tmds_rate(vcstate, dclk_rate) <= VOP2_HDMI_PHY_PLL_MAX_DCLK_RATE)
 		return false;
 
 	return true;
