@@ -1148,6 +1148,17 @@
 	cursor-win-id=<ROCKCHIP_VOP2_ESMART0>;
 	rockchip,plane-mask = <(1 << ROCKCHIP_VOP2_CLUSTER0 | 1 << ROCKCHIP_VOP2_ESMART0)>;
 	rockchip,primary-plane = <ROCKCHIP_VOP2_CLUSTER0>;
+	/*
+	 * HDMI0 4K@120 runs FRL, where dclk cannot be sourced from the HDMI PHY
+	 * PLL and comes from the CRU instead. rockchip_rk3588_drm_dclk_set_rate()
+	 * only re-rates the source PLL to the exact pixel clock when that PLL is
+	 * v0pll (gpll/cpll are shared and only offer integer dividers), so hang
+	 * dclk_vop0_src off v0pll like the RK3588 EVB HDMI/eDP boards do. Note vp2
+	 * (DP) is on v0pll too (rk3588s.dtsi): a simultaneous DP output would
+	 * contend for the PLL rate.
+	 */
+	assigned-clocks = <&cru DCLK_VOP0_SRC>;
+	assigned-clock-parents = <&cru PLL_V0PLL>;
 };
 
 &vp1 {
