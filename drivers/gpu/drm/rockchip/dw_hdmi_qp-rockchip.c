@@ -39,6 +39,10 @@
 #include "rockchip_drm_vop.h"
 #include "../../../phy/rockchip/phy-hdmi.h"
 
+static unsigned int frl_max_rate_per_lane;
+module_param(frl_max_rate_per_lane, uint, 0644);
+MODULE_PARM_DESC(frl_max_rate_per_lane, "Cap the HDMI FRL rate per lane in Gbps (3/6/8/10/12, 0 = no cap)");
+
 #define HIWORD_UPDATE(val, mask)	(val | (mask) << 16)
 
 #define RK3538_VO_GRF_HDMI_MISC		0x68
@@ -2689,6 +2693,16 @@ secondary:
 			   !hdmi->link_cfg.rate_per_lane) {
 			hdmi->link_cfg.frl_lanes = 4;
 			hdmi->link_cfg.rate_per_lane = 10;
+		}
+		/*
+		 * Optional user cap on the per-lane FRL rate (Gbps; 3, 6, 8, 10 or 12).
+		 * 0 = no cap (default, unchanged behaviour). Lets a marginal link be run
+		 * at the lowest rate the mode needs, e.g. 8 (32G) for 3840x2160@120 8-bit.
+		 */
+		if (frl_max_rate_per_lane && hdmi->link_cfg.rate_per_lane > frl_max_rate_per_lane) {
+			dev_info(hdmi->dev, "FRL rate capped to %uG/lane by frl_max_rate_per_lane\n",
+				 frl_max_rate_per_lane);
+			hdmi->link_cfg.rate_per_lane = frl_max_rate_per_lane;
 		}
 
 		phy_cfg.bpc = color_depth;
