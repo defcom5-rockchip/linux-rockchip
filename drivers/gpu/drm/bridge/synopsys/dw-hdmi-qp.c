@@ -48,6 +48,17 @@
 
 #include <media/cec-notifier.h>
 
+/*
+ * Interval between SCDC FLT_update reads after FRL link training succeeds.
+ * Default 100 ms (unchanged behaviour); HDMI 2.1 asks for <= 250 ms. Larger
+ * values cut DDC traffic for sinks whose DDC/SCDC slave wedges under steady
+ * polling; 0 stops the reads (older BSP behaviour: nothing polls after
+ * training). Read on every tick, so it can be changed at runtime.
+ */
+static unsigned int frl_update_poll_ms = 100;
+module_param(frl_update_poll_ms, uint, 0644);
+MODULE_PARM_DESC(frl_update_poll_ms, "FRL FLT_update SCDC poll interval in ms after link training (default 100, 0 = don't poll)");
+
 #define DDC_CI_ADDR		0x37
 #define DDC_SEGMENT_ADDR	0x30
 
@@ -2485,8 +2496,13 @@ static int dw_hdmi_qp_flt_ltsp(struct dw_hdmi_qp *hdmi)
 		}
 
 		if (!i) {
-			i = 5;
-			drm_scdc_readb(hdmi->ddc, SCDC_UPDATE_0, &val);
+			unsigned int poll_ms = READ_ONCE(frl_update_poll_ms);
+
+			/* poll_ms == 0: skip the SCDC read, keep the dclk/disconnect checks */
+			i = poll_ms ? max(1U, poll_ms / 20) : 5;
+			val = 0;
+			if (poll_ms)
+				drm_scdc_readb(hdmi->ddc, SCDC_UPDATE_0, &val);
 
 			mutex_lock(&hdmi->audio_mutex);
 			if (hdmi->dclk_en) {
