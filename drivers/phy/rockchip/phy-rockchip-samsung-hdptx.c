@@ -2483,6 +2483,21 @@ static void rk_hdptx_phy_configure_ffe(struct phy *phy, u8 ffe_lv, u8 ffe_mode)
 	if (!(ffe_mode & FFE_DE_EMPHASIS_ENABLE_MASK))
 		de_emphasis = 0;
 
+	/*
+	 * phy_configure() reaches here from the HDMI encoder's atomic_check
+	 * (TEST_ONLY commits included) without a runtime-PM reference. After an
+	 * FRL output is disabled the PHY runtime-suspends and PCLK_HDPTX0 is
+	 * gated; a LANE register access then stalls the bus and hangs the SoC
+	 * (Orange Pi 5B at 3840x2160@120: blank, the sink's standby HPD toggle,
+	 * the compositor re-lights the output, board dead). The FFE level only
+	 * matters on a live link and FLT training applies it again after
+	 * power-on, so skip the write when the PHY is not active.
+	 */
+	if (pm_runtime_get_if_active(hdptx->dev, true) <= 0) {
+		dev_info_ratelimited(hdptx->dev, "phy not active, skipping ffe config (lv %u)\n", ffe_lv);
+		return;
+	}
+
 	regmap_update_bits(hdptx->regmap, LANE_REG(0304), LN_TX_DRV_POST_LVL_CTRL_MASK,
 			   FIELD_PREP(LN_TX_DRV_POST_LVL_CTRL_MASK, de_emphasis));
 	regmap_update_bits(hdptx->regmap, LANE_REG(0404), LN_TX_DRV_POST_LVL_CTRL_MASK,
@@ -2500,6 +2515,8 @@ static void rk_hdptx_phy_configure_ffe(struct phy *phy, u8 ffe_lv, u8 ffe_mode)
 			   FIELD_PREP(LN_TX_DRV_PRE_LVL_CTRL_MASK, pre_shoot));
 	regmap_update_bits(hdptx->regmap, LANE_REG(0605), LN_TX_DRV_PRE_LVL_CTRL_MASK,
 			   FIELD_PREP(LN_TX_DRV_PRE_LVL_CTRL_MASK, pre_shoot));
+
+	pm_runtime_put(hdptx->dev);
 }
 
 static int rk_hdptx_phy_configure(struct phy *phy, union phy_configure_opts *opts)
