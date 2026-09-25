@@ -369,6 +369,8 @@ struct dw_hdmi_qp {
 	bool update;
 	bool hdr2sdr;
 	bool flt_no_timeout;
+	u8 frl_rate;			/* enabled FRL link, lanes * Gbps; 0 = none */
+	bool flt_active;		/* flt_work queued or running */
 
 	u8 next_tfr;
 	u8 old_fva_factor_m1;
@@ -2736,12 +2738,16 @@ int dw_hdmi_hdcp2_notifier_callback(struct notifier_block *nb, unsigned long eve
 static void dw_hdmi_qp_flt_work(struct work_struct *p_work)
 {
 	struct dw_hdmi_qp *hdmi = container_of(p_work, struct dw_hdmi_qp, flt_work);
-	void *data = hdmi->plat_data->phy_data;
-	struct dw_hdmi_link_config *link_cfg = hdmi->plat_data->get_link_cfg(data);
 	u8 frl_rate;
 	int state = LTS1;
 
-	frl_rate = link_cfg->frl_lanes * link_cfg->rate_per_lane;
+	/*
+	 * Use the rate recorded at atomic_enable, not link_cfg: link_cfg is
+	 * rewritten by every atomic_check, TEST_ONLY ones included.
+	 */
+	mutex_lock(&hdmi->mutex);
+	frl_rate = hdmi->frl_rate;
+	mutex_unlock(&hdmi->mutex);
 
 	while (1) {
 		switch (state) {
@@ -2770,6 +2776,12 @@ static void dw_hdmi_qp_flt_work(struct work_struct *p_work)
 		if (state <= 0)
 			break;
 	}
+
+	/* keep a rate lowered by LTS4: the PHY now runs at it */
+	mutex_lock(&hdmi->mutex);
+	hdmi->frl_rate = frl_rate;
+	hdmi->flt_active = false;
+	mutex_unlock(&hdmi->mutex);
 }
 
 static int dw_hdmi_qp_setup(struct dw_hdmi_qp *hdmi,
@@ -3306,6 +3318,38 @@ out:
 	mutex_unlock(&hdmi->mutex);
 }
 EXPORT_SYMBOL_GPL(dw_hdmi_qp_handle_hpd);
+
+/*
+ * A short HPD drop (e.g. a monitor switched off with its power button) ends
+ * FRL link training: dw_hdmi_qp_flt_ltsp() sees HPD low and leaves through
+ * LTSL, which sets the sink's FRL_Rate to 0. dw_hdmi_qp_handle_hpd() does
+ * nothing for FRL and userspace sees the same connector and mode, so there
+ * is no modeset and the enabled CRTC is left on an untrained link.
+ *
+ * Called by the platform glue on a debounced HPD-high edge: if an FRL output
+ * is enabled and flt_work is neither queued nor running, restart training
+ * from LTS1 as dw_hdmi_qp_bridge_atomic_enable() does. At most one attempt
+ * per call; a disabled output (DPMS off) and TMDS outputs are left alone.
+ */
+void dw_hdmi_qp_frl_retrain(struct dw_hdmi_qp *hdmi)
+{
+	if (IS_ERR_OR_NULL(hdmi))
+		return;
+
+	if (hdmi->phy.ops->read_hpd(hdmi, hdmi->phy.data) != connector_status_connected)
+		return;
+
+	mutex_lock(&hdmi->mutex);
+	mutex_lock(&hdmi->audio_mutex);
+	if (hdmi->frl_rate && hdmi->dclk_en && !hdmi->disabled && !hdmi->flt_active) {
+		dev_info(hdmi->dev, "HPD high on an enabled FRL output, retraining the link\n");
+		hdmi->flt_active = true;
+		queue_work(hdmi->workqueue, &hdmi->flt_work);
+	}
+	mutex_unlock(&hdmi->audio_mutex);
+	mutex_unlock(&hdmi->mutex);
+}
+EXPORT_SYMBOL_GPL(dw_hdmi_qp_frl_retrain);
 
 void dw_hdmi_qp_set_gaming_vrr_enable(struct dw_hdmi_qp *hdmi, bool enable)
 {
@@ -4175,6 +4219,12 @@ static void dw_hdmi_qp_bridge_atomic_disable(struct drm_bridge *bridge,
 
 	cancel_work_sync(&hdmi->flt_work);
 	flush_workqueue(hdmi->workqueue);
+
+	mutex_lock(&hdmi->mutex);
+	hdmi->frl_rate = 0;
+	hdmi->flt_active = false;
+	mutex_unlock(&hdmi->mutex);
+
 	dw_hdmi_qp_flt_ltsl(hdmi);
 
 	if (hdmi->panel)
@@ -4189,6 +4239,7 @@ static void dw_hdmi_qp_bridge_atomic_enable(struct drm_bridge *bridge,
 	struct drm_connector *connector;
 	void *data = hdmi->plat_data->phy_data;
 	struct dw_hdmi_link_config *link_cfg = NULL;
+	bool frl = false;
 
 	if (hdmi->plat_data->get_link_cfg)
 		link_cfg = hdmi->plat_data->get_link_cfg(data);
@@ -4207,6 +4258,13 @@ static void dw_hdmi_qp_bridge_atomic_enable(struct drm_bridge *bridge,
 		hdmi_writel(hdmi, 2, PKTSCHED_PKT_CONTROL0);
 		hdmi_modb(hdmi, PKTSCHED_GCP_TX_EN, PKTSCHED_GCP_TX_EN, PKTSCHED_PKT_EN);
 	}
+
+	/* flt_work is queued below; record the link for it and for retrains */
+	if (link_cfg && link_cfg->frl_mode) {
+		frl = true;
+		hdmi->frl_rate = link_cfg->frl_lanes * link_cfg->rate_per_lane;
+		hdmi->flt_active = true;
+	}
 	mutex_unlock(&hdmi->mutex);
 
 	if (!hdmi->dclk_en) {
@@ -4219,7 +4277,7 @@ static void dw_hdmi_qp_bridge_atomic_enable(struct drm_bridge *bridge,
 		mutex_unlock(&hdmi->audio_mutex);
 	}
 
-	if (link_cfg && link_cfg->frl_mode)
+	if (frl)
 		queue_work(hdmi->workqueue, &hdmi->flt_work);
 
 	dw_hdmi_qp_init_audio_infoframe(hdmi);
