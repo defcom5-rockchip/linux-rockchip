@@ -43,6 +43,10 @@ static unsigned int frl_max_rate_per_lane;
 module_param(frl_max_rate_per_lane, uint, 0644);
 MODULE_PARM_DESC(frl_max_rate_per_lane, "Cap the HDMI FRL rate per lane in Gbps (3/6/8/10/12, 0 = no cap)");
 
+static bool allow_frl;
+module_param(allow_frl, bool, 0644);
+MODULE_PARM_DESC(allow_frl, "Offer HDMI 2.1 FRL modes (pixel clock >= 600 MHz) to userspace (default: false)");
+
 #define HIWORD_UPDATE(val, mask)	(val | (mask) << 16)
 
 #define RK3538_VO_GRF_HDMI_MISC		0x68
@@ -1733,6 +1737,19 @@ dw_hdmi_rockchip_mode_valid(struct dw_hdmi *dw_hdmi, void *data,
 	if ((!hdmi->enable_gpio || hdmi->plat_data->dw_hdmi_qp_version == DW_HDMI_QP_V2) &&
 	    mode->clock > 600000)
 		return MODE_BAD;
+
+	/*
+	 * Tearing down and rebuilding an FRL link (blank, sink HPD toggle,
+	 * monitor power-off) hard-hangs the RK3588 SoC. Until that is fixed,
+	 * hide every mode hdmi_select_link_config() would drive over FRL,
+	 * i.e. pixel clock >= HDMI20_MAX_RATE even for YUV420 (whose TMDS
+	 * character rate is halved), unless the user opts in with allow_frl.
+	 */
+	if (!allow_frl && mode->clock >= HDMI20_MAX_RATE) {
+		dev_info_once(hdmi->dev, "hiding HDMI 2.1 FRL modes (%dx%d@%d, %d kHz); set rockchipdrm.allow_frl=1 to offer them\n",
+			      mode->hdisplay, mode->vdisplay, drm_mode_vrefresh(mode), mode->clock);
+		return MODE_BAD;
+	}
 
 	return MODE_OK;
 }
