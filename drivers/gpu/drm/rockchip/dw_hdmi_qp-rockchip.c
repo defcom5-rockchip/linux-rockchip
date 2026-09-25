@@ -1047,6 +1047,13 @@ static void repo_hpd_event(struct work_struct *p_work)
 		dw_hdmi_qp_handle_hpd(hdmi->hdmi_qp, hdmi->hpd_stat);
 		dw_hdmi_qp_cec_set_hpd(hdmi->hdmi_qp, hdmi->hpd_stat, change);
 	}
+
+	/*
+	 * Also without a status change: an HPD drop too short for detect to
+	 * see can still have ended FRL link training.
+	 */
+	if (hdmi->hpd_stat)
+		dw_hdmi_qp_frl_retrain(hdmi->hdmi_qp);
 }
 
 static irqreturn_t rk3538_hdmi_hardirq(int irq, void *dev_id)
