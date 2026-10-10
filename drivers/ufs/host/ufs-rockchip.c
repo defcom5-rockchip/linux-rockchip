@@ -514,7 +514,7 @@ static int ufs_rockchip_remove(struct platform_device *pdev)
 	pm_runtime_forbid(&pdev->dev);
 	pm_runtime_get_noresume(&pdev->dev);
 	ufshcd_remove(hba);
-	ufshcd_dealloc_host(hba);
+	/* the host is device-managed since upstream d06eb2620d3b: no ufshcd_dealloc_host() */
 	clk_disable_unprepare(host->ref_out_clk);
 
 	return 0;

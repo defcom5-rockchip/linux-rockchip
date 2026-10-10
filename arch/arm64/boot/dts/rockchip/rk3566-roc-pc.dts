@@ -450,7 +450,6 @@
 		reg = <0x20>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <RK_PA3 IRQ_TYPE_LEVEL_LOW>;
-		clock-output-names = "rk808-clkout1", "rk808-clkout2";
 
 		pinctrl-names = "default", "pmic-sleep",
 				"pmic-power-off", "pmic-reset";
