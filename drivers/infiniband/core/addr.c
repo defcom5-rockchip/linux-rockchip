@@ -321,11 +321,14 @@ static int dst_fetch_ha(const struct dst_entry *dst,
 	if (!n)
 		return -ENODATA;
 
+	read_lock_bh(&n->lock);
 	if (!(n->nud_state & NUD_VALID)) {
+		read_unlock_bh(&n->lock);
 		neigh_event_send(n, NULL);
 		ret = -ENODATA;
 	} else {
 		neigh_ha_snapshot(dev_addr->dst_dev_addr, n, dst->dev);
+		read_unlock_bh(&n->lock);
 	}
 
 	neigh_release(n);
@@ -335,15 +338,15 @@ static int dst_fetch_ha(const struct dst_entry *dst,
 
 static bool has_gateway(const struct dst_entry *dst, sa_family_t family)
 {
-	struct rtable *rt;
-	struct rt6_info *rt6;
+	const struct rtable *rt;
+	const struct rt6_info *rt6;
 
 	if (family == AF_INET) {
 		rt = container_of(dst, struct rtable, dst);
 		return rt->rt_uses_gateway;
 	}
 
-	rt6 = container_of(dst, struct rt6_info, dst);
+	rt6 = dst_rt6_info(dst);
 	return rt6->rt6i_flags & RTF_GATEWAY;
 }
 

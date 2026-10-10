@@ -214,7 +214,7 @@ static bool icmpv6_xrlim_allow(struct sock *sk, u8 type,
 	} else if (dst->dev && (dst->dev->flags&IFF_LOOPBACK)) {
 		res = true;
 	} else {
-		struct rt6_info *rt = (struct rt6_info *)dst;
+		struct rt6_info *rt = dst_rt6_info(dst);
 		int tmo = net->ipv6.sysctl.icmpv6_time;
 		struct inet_peer *peer;
 
@@ -245,7 +245,7 @@ static bool icmpv6_rt_has_prefsrc(struct sock *sk, u8 type,
 
 	dst = ip6_route_output(net, sk, fl6);
 	if (!dst->error) {
-		struct rt6_info *rt = (struct rt6_info *)dst;
+		struct rt6_info *rt = dst_rt6_info(dst);
 		struct in6_addr prefsrc;
 
 		rt6_get_prefsrc(rt, &prefsrc);
@@ -624,7 +624,7 @@ void icmp6_send(struct sk_buff *skb, u8 type, u8 code, __u32 info,
 	if (ip6_append_data(sk, icmpv6_getfrag, &msg,
 			    len + sizeof(struct icmp6hdr),
 			    sizeof(struct icmp6hdr),
-			    &ipc6, &fl6, (struct rt6_info *)dst,
+			    &ipc6, &fl6, dst_rt6_info(dst),
 			    MSG_DONTWAIT)) {
 		ICMP6_INC_STATS(net, idev, ICMP6_MIB_OUTERRORS);
 		ip6_flush_pending_frames(sk);
@@ -817,7 +817,7 @@ static void icmpv6_echo_reply(struct sk_buff *skb)
 	if (ip6_append_data(sk, icmpv6_getfrag, &msg,
 			    skb->len + sizeof(struct icmp6hdr),
 			    sizeof(struct icmp6hdr), &ipc6, &fl6,
-			    (struct rt6_info *)dst, MSG_DONTWAIT)) {
+			    dst_rt6_info(dst), MSG_DONTWAIT)) {
 		__ICMP6_INC_STATS(net, idev, ICMP6_MIB_OUTERRORS);
 		ip6_flush_pending_frames(sk);
 	} else {
@@ -861,6 +861,9 @@ void icmpv6_notify(struct sk_buff *skb, u8 type, u8 code, __be32 info)
 	if (!pskb_may_pull(skb, inner_offset+8))
 		goto out;
 
+	if (nexthdr == IPPROTO_RAW)
+		goto out;
+
 	/* BUGGG_FUTURE: we should try to parse exthdrs in this packet.
 	   Without this we will not able f.e. to make source routed
 	   pmtu discovery.
@@ -889,7 +892,6 @@ static int icmpv6_rcv(struct sk_buff *skb)
 	struct net *net = dev_net(skb->dev);
 	struct net_device *dev = icmp6_dev(skb);
 	struct inet6_dev *idev = __in6_dev_get(dev);
-	const struct in6_addr *saddr, *daddr;
 	struct icmp6hdr *hdr;
 	u8 type;
 
@@ -920,12 +922,10 @@ static int icmpv6_rcv(struct sk_buff *skb)
 
 	__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_INMSGS);
 
-	saddr = &ipv6_hdr(skb)->saddr;
-	daddr = &ipv6_hdr(skb)->daddr;
-
 	if (skb_checksum_validate(skb, IPPROTO_ICMPV6, ip6_compute_pseudo)) {
 		net_dbg_ratelimited("ICMPv6 checksum failed [%pI6c > %pI6c]\n",
-				    saddr, daddr);
+				    &ipv6_hdr(skb)->saddr,
+				    &ipv6_hdr(skb)->daddr);
 		goto csum_error;
 	}
 
@@ -1007,7 +1007,8 @@ static int icmpv6_rcv(struct sk_buff *skb)
 			break;
 
 		net_dbg_ratelimited("icmpv6: msg of unknown type [%pI6c > %pI6c]\n",
-				    saddr, daddr);
+				    &ipv6_hdr(skb)->saddr,
+				    &ipv6_hdr(skb)->daddr);
 
 		/*
 		 * error of unknown type.
