@@ -819,7 +819,7 @@ int panfrost_job_init(struct panfrost_device *pfdev)
 	if (!pfdev->reset.wq)
 		return -ENOMEM;
 
-	args.credit_limit = nentries;
+	/* 6.1.191: set after the workqueue exists; the initializer above still ran before alloc_ordered_workqueue() */
 	args.timeout_wq = pfdev->reset.wq;
 
 	for (j = 0; j < NUM_JOB_SLOTS; j++) {
